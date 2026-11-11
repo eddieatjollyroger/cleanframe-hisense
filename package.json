@@ -1,0 +1,18 @@
+{
+  "name": "cleanframe-hisense",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A quiet home screen for Hisense VIDAA TVs, hosted on your home server.",
+  "scripts": {
+    "dev": "python3 scripts/preview.py --public-fonts",
+    "dev:public": "python3 scripts/preview.py --public-fonts",
+    "check": "node --check app/main.js && node --check app/platform.js && node --check app/device.js && node --check hisense/ambient.js && node --check hisense/runtime.js && python3 scripts/check.py",
+    "check:browser": "node scripts/check-browser.mjs",
+    "check:hisense": "node scripts/check-hisense.mjs",
+    "check:public": "python3 scripts/check-public.py"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  },
+  "license": "MIT"
+}
