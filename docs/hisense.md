@@ -86,7 +86,7 @@ For agent-assisted editing, `/api/key` accepts only `up`, `down`, `left`, `right
 
 ## Home return and recovery
 
-Automatic return is initially **off**; idle fade defaults to **120 seconds**. When enabled, the service observes `remote_launcher` and opens CleanFrame after Home settles. A five-second launch cooldown avoids repeated launches. It rechecks the latest received state when a cooldown or pause expires, without needing another broadcast. A newer app/input/Art state supersedes an older Home event.
+Automatic return is initially **off**; idle fade defaults to **120 seconds**. When enabled, the service observes `remote_launcher` and opens CleanFrame after a short settle (0.25 s), then falls back to one more launch attempt after 1.8 s if the TV never reports an app in the foreground (a launch sent while the launcher is still waking can be swallowed). Any app, input or standby broadcast ends that retry. A five-second launch cooldown avoids repeated launches. It rechecks the latest received state when a cooldown or pause expires, without needing another broadcast. A newer app/input/Art state supersedes an older Home event.
 
 The CleanFrame **VIDAA Home** action pauses return for one minute. Launching an app or switching input ends that pause. To disable return permanently, turn it off on the management page or stop the Compose service. Native Home configuration is unchanged.
 

@@ -81,8 +81,33 @@ class HomeReturnTests(unittest.TestCase):
     def test_home_must_settle_but_duplicates_do_not_delay_it_forever(self):
         self.home()
         self.home(now=100.5)
-        self.assertFalse(self.bridge._reconcile_home(now=100.74))
-        self.assertTrue(self.bridge._reconcile_home(now=100.75))
+        self.assertFalse(self.bridge._reconcile_home(now=100.24))
+        self.assertTrue(self.bridge._reconcile_home(now=100.25))
+
+    def test_home_opens_quickly_instead_of_waiting_three_quarters_of_a_second(self):
+        self.home()
+        self.assertFalse(self.bridge._reconcile_home(now=100.1))
+        self.assertTrue(self.bridge._reconcile_home(now=100.25))
+        self.bridge.open.assert_called_once()
+
+    def test_swallowed_launch_is_retried_once_without_another_broadcast(self):
+        self.home()
+        self.assertTrue(self.bridge._reconcile_home(now=100.25))
+        # `open` clears the screen state before asking the TV to launch.
+        self.bridge._record_state(None)
+        self.assertFalse(self.bridge._reconcile_home(now=102))
+        self.assertTrue(self.bridge._reconcile_home(now=102.1))
+        self.assertEqual(self.bridge.home_attempts, 2)
+        # No third attempt, even much later.
+        self.assertFalse(self.bridge._reconcile_home(now=110))
+        self.assertEqual(self.bridge.open.call_count, 2)
+
+    def test_app_state_after_launch_disarms_the_retry(self):
+        self.home()
+        self.assertTrue(self.bridge._reconcile_home(now=100.25))
+        self.bridge._record_state({"statetype": "app", "appId": "cleanframehome"}, now=100.9)
+        self.assertFalse(self.bridge._reconcile_home(now=110))
+        self.bridge.open.assert_called_once()
 
     def test_disabled_or_unknown_state_does_not_launch(self):
         self.home()

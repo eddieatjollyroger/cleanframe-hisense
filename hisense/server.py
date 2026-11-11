@@ -33,6 +33,15 @@ SERVICES = [
 ]
 LOG = logging.getLogger("cleanframe")
 
+# Home return timing. The TV announces `remote_launcher` when its own Home
+# screen is already visible, so this is dead time in front of every takeover.
+# Keep it short; if the launch is swallowed while the launcher is still waking
+# up, `_reconcile_home` sends one more attempt after HOME_RETRY_AFTER and the
+# next app/source broadcast disarms it.
+HOME_SETTLE = .25
+HOME_RETRY_AFTER = 1.8
+HOME_ATTEMPTS = 2
+
 
 class Bridge:
     def __init__(self, state: Path, host: str, base_url: str, demo=False):
@@ -54,6 +63,8 @@ class Bridge:
         self.runtime = None
         self.pause_home_until = 0.0
         self.last_home_launch = 0.0
+        self.home_launch_at = None
+        self.home_attempts = 0
         self.stopping = threading.Event()
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
         key_path = state / "control-key"
@@ -197,6 +208,11 @@ class Bridge:
                 self.home_since = now
             elif not is_home:
                 self.home_since = None
+            # A real app/input/standby broadcast means the takeover landed (or
+            # the viewer went somewhere on purpose). Never retry past it.
+            if value is not None and not is_home:
+                self.home_launch_at = None
+                self.home_attempts = 0
         try:
             self.events.put_nowait(None)
         except queue.Full:
@@ -211,7 +227,7 @@ class Bridge:
             return "another_screen"
         if now < self.pause_home_until:
             return "temporary_pause"
-        if self.home_since is None or now < self.home_since + .75:
+        if self.home_since is None or now < self.home_since + HOME_SETTLE:
             return "waiting_for_home_to_settle"
         if now < self.last_home_launch + 5:
             return "launch_cooldown"
@@ -221,6 +237,7 @@ class Bridge:
         now = time.monotonic()
         with self.state_lock:
             return {"reason": self._home_reason(now),
+                    "attempts": self.home_attempts,
                     "pause_seconds": round(max(0, self.pause_home_until - now), 1),
                     "cooldown_seconds": round(max(0, self.last_home_launch + 5 - now), 1),
                     "state_age_seconds": round(max(0, now - self.last_state_at), 1) if self.last_state_at is not None else None,
@@ -229,16 +246,35 @@ class Bridge:
     def _reconcile_home(self, now=None):
         now = time.monotonic() if now is None else now
         with self.lock:
+            retry = False
             with self.state_lock:
                 reason = self._home_reason(now)
                 if reason != self.home_decision:
                     if reason in ("temporary_pause", "launch_cooldown"):
                         LOG.info("Home return deferred: %s; it will retry when eligible.", reason)
                     self.home_decision = reason
-                if reason != "ready":
+                if reason == "ready":
+                    self.last_home_launch = now
+                    self.home_launch_at = now
+                    self.home_attempts = 1
+                elif (reason == "waiting_for_tv_state" and
+                        self.home_launch_at is not None and
+                        self.home_attempts < HOME_ATTEMPTS and
+                        now - self.home_launch_at >= HOME_RETRY_AFTER):
+                    # `_launch_native` cleared the screen state, so a swallowed
+                    # launch looks exactly like this: no state at all, well
+                    # after the first attempt. One more try, then stop.
+                    self.home_attempts += 1
+                    self.home_launch_at = now
+                    self.last_home_launch = now
+                    retry = True
+                else:
                     return False
-                self.last_home_launch = now
-            LOG.info("TV is on its original Home; returning to CleanFrame.")
+            if retry:
+                LOG.info("CleanFrame did not open; sending launch attempt %d of %d.",
+                         self.home_attempts, HOME_ATTEMPTS)
+            else:
+                LOG.info("TV is on its original Home; returning to CleanFrame.")
             self.open()
             return True
 
